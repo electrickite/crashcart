@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=CrashCart
+Comment=Control a connected computer
+TryExec=crashcart
+Exec=crashcart
+Icon=crashcart
