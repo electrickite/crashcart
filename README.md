@@ -8,13 +8,13 @@ systems.
 CrashCart was written in a hurry to scratch a personal itch. It has been tested
 primarily on Linux, but should work on Windows out of the box and on macOS
 without many tweaks. Contributions are welcome, but feature requests without
-an implementation are not likely to be considered. This is, at tbe end of the
-day, a project aimed at tinkerers, and so OS packaging is discouraged.
+an implementation are not likely to be considered. This is, at the end of the
+day, a project aimed at tinkerers - OS packaging is discouraged.
 
 ## Hardware
 
-CrashCart displays the video stream from a video capture device connected to the
-computer to monitor. It also captures key strokes and forwards them using a
+CrashCart displays the video stream from a video capture device connected to
+another computer. It also captures key strokes and forwards them using a
 keyboard emulator. 
 
 ### Video capture
@@ -25,10 +25,9 @@ variety of devices are available, including inexpensive USB capture dongles.
 ### Keyboard emulator
 
 Keystrokes captured from the local keyboard are sent over a serial connection
-using a simple protocol. The serial bridge can then be connected to a
-microcontroller capable of emulating a USB keyboard, such as the Arduino
-Leonardo (or clone) with an ATmega32u4. A sample program and keymap is
-included.
+using a simple protocol. The serial bridge is connected to abmicrocontroller
+capable of emulating a USB keyboard, such as the Arduino Leonardo (or clone)
+with an ATmega32u4. A sample sketch and keymaps are included.
 
 ## Install
 
@@ -47,7 +46,7 @@ CrashCart can be run directly from the project source using the `run.py` script.
 
 It can also be installed using Python Build/Install:
 
-    $ python -m build --wheel --no-isolation
+    $ python -m build --wheel
     $ sudo python -m installer dist/*.whl
 
 Or packaged on Arch Linux using the included `PKGBUILD`:
@@ -61,9 +60,9 @@ CrashCart will attempt to select the correct video stream and serial port
 when starting. To select another video device or serial device/speed, press
 `Ctrl+P` or right click to open the control panel window.
 
-The control panel allows you to cycle between video and serial devices as
-well as serial device speeds. You can also disable keyboard capture and
-enable display of key presses in the status bar.
+The control panel allows you to cycle between video and serial devices/speeds.
+You can also set the video aspect ratio, disable keyboard capture, and enable
+display of key presses in the status bar.
 
 ### Key Queue
 
@@ -90,7 +89,7 @@ simple protocol. Each command is followed by a newline.
   * Release key: `R <keycode>`
   * Press and release key: `K <key>`
 
-The decimal key codes are the raw codes used by the Arduino Keyboard library.
+The decimal key codes are the raw values used by the Arduino Keyboard library.
 For example, to press then release the Escape key:
 
     P 35
@@ -98,8 +97,8 @@ For example, to press then release the Escape key:
 
 ### Keymap
 
-CrashCart provides a mapping for US keyboard in several operating systems in
-the `kwymap` module. It will attempt to select the correct keymap based on the
+CrashCart provides a US keyboard mapping for several operating systems in the
+`keymap` module. It will attempt to select the correct keymap based on the
 operating system. If key presses are sending incorrect characters, you may need
 to create a custom keymap. This can either be located at
 `crashcart/keymap/custom.py` or in a Python module in the load path named
