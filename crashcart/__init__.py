@@ -328,7 +328,7 @@ class App:
         self.window.bind("<Button-3>", self.show_control_panel)
 
         self.video = tk.Label(self.window, relief='flat', borderwidth=0)
-        self.video.pack()
+        self.video.pack(anchor=tk.CENTER, expand=True)
         self.statusbar = tk.Label(self.window, text=self.status_str(), bd=1, relief=tk.SUNKEN, anchor=tk.W)
         self.statusbar.pack(side=tk.BOTTOM, fill=tk.X)
         self.aspect = tk.StringVar(self.window, 'native')
