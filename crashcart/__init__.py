@@ -20,222 +20,327 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from . import keyboard
-from . import keymap
 import cv2
 import glob
+import importlib.util
 import numpy as np
 import os
 import serial
 import sys
 import threading
+import tkinter as tk
+from PIL import Image, ImageTk, ImageOps
 from serial.tools.list_ports import comports as list_ports
 
-window = 'main'
-vc = None
-vc_index = 0
-ser = None
-ser_index = 0
-keyboard_enabled = True
-show_keys = False
-last_key = None
-key_queue = []
-vid_width = 1920
-vid_height = 1080
-
-baud_index = 15
-baud_rates = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
-
-ports = list_ports()
-ports.sort(key=lambda p: p.name)
-for index, port in enumerate(ports):
-    if 'USB' in port.name:
-        ser_index = index
-        break
-
-if len(glob.glob('/dev/video*')) > 2:
-    vc_index = 2
-
-blank = np.zeros((300, 400, 3), np.uint8)
-blank[:] = (0, 0, 0)
-
-def serial_write(msg):
-    if ser:
-        ser.write(bytes(msg, 'utf-8'))
-
-def print_key(key, action):
-    if show_keys:
-        print('{}  0x{:02X}  {:<3} {}'.format(
-            action, key.scan_code, key.scan_code, key.name))
-
-def map_scancode(code):
-    try:
-        return keymap.codes[code]
-    except IndexError:
-        return 0x00
-
-def send_key_press(code):
-    serial_write("P {}\n".format(map_scancode(code)))
-
-def send_key_release(code):
-    serial_write("R {}\n".format(map_scancode(code)))
-
-def key_hook(event):
-    global last_key
-    if not keyboard_enabled: return
-    if event.event_type == keyboard.KEY_DOWN:
-        print_key(event, 'PRESS  ')
-        if key_queue:
-            send_keys(keys=key_queue)
-        send_key_press(event.scan_code)
-        last_key = event
-    if event.event_type == keyboard.KEY_UP:
-        print_key(event, 'RELEASE')
-        send_key_release(event.scan_code)
-
-def start_serial():
-    global ser
-    stop_serial()
-    try:
-        ser = serial.Serial(ports[ser_index].device, baud_rates[baud_index])
-        print("Opened serial connection: {} {} {}{}{}".format(
-            ser.name, ser.baudrate, ser.bytesize, ser.parity, ser.stopbits))
-    except IndexError:
-        print("Serial port not found", file=sys.stderr)
-    except:
-        print("Could not open serial connection: {}".format(ports[ser_index].name), file=sys.stderr)
-
-def stop_serial():
-    if ser: ser.close()
-
-def start_capture():
-    global vc
-    try:
-        stop_capture()
-        vc = cv2.VideoCapture(vc_index, cv2.CAP_V4L)
-        if not vc.isOpened():
-          vc = cv2.VideoCapture(vc_index, cv2.CAP_DSHOW)
-        if not vc.isOpened():
-          vc = cv2.VideoCapture(vc_index, cv2.CAP_ANY)
-        vc.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-        vc.set(cv2.CAP_PROP_FRAME_WIDTH, vid_width)
-        vc.set(cv2.CAP_PROP_FRAME_HEIGHT, vid_height)
-    except:
-        vc = None
-
-def stop_capture():
-    if vc: vc.release()
-
-def status_str():
-    stream = "{} x {}".format(
-        int(vc.get(cv2.CAP_PROP_FRAME_WIDTH)), int(vc.get(cv2.CAP_PROP_FRAME_HEIGHT))) if vc and vc.isOpened() else 'None'
-    ser_info = "{} {} {}{}{}".format(
-        ser.name, ser.baudrate, ser.bytesize, ser.parity, ser.stopbits) if ser else None
-    kb = 'Enabled' if keyboard_enabled else 'Disabled'
-    key = "  0x{:02X} {}".format(last_key.scan_code, last_key.name) if show_keys and last_key else ''
-    q = "  |  Q: {}".format(', '.join(list(map(lambda k : str(k).split('.')[-1], key_queue)))) if key_queue else ''
-    return "Video: [{}] {}  |  Serial: {}  |  Keyboard: {}{}{}".format(
-        vc_index, stream, ser_info, kb, key, q)
-
-def toggle_stream(state=None, next=True):
-    global vc_index
-    if next:
-        vc_index += 1
+try:
+    from .keymap import custom as keymap
+except ImportError:
+    if importlib.util.find_spec('crashcart_keymap'):
+        import crashcart_keymap as keymap
+    elif sys.platform == 'linux':
+        from .keymap import x11 as keymap
+    elif sys.platform == 'win32':
+        from .keymap import win as keymap
     else:
-        if vc_index == 0: return
-        vc_index -= 1
-    start_capture()
+        from .keymap import linux as keymap
 
-def toggle_serial(state=None, next=True):
-    global ser_index
-    if next:
-        ser_index = 0 if ser_index == len(ports)-1 else ser_index+1
-    else:
-        ser_index = len(ports)-1 if ser_index == 0 else ser_index-1
-    start_serial()
 
-def toggle_baud(state=None, next=True):
-    global baud_index
-    if next:
-        baud_index = 0 if baud_index == len(baud_rates)-1 else baud_index+1
-    else:
-        baud_index = len(baud_rates)-1 if baud_index == 0 else baud_index-1
-    start_serial()
+class App:
 
-def enable_keyboard(state, data):
-    global keyboard_enabled
-    keyboard_enabled = bool(state)
+    def __init__(self):
+        self.window = None
+        self.window_resized = False
+        self.video = None
+        self.statusbar = None
+        self.cp = None
+        self.vc = None
+        self.vc_index = 0
+        self.aspect = None
+        self.vid_width = None
+        self.vid_height = None
+        self.ser = None
+        self.ser_index = 0
+        self.ports = []
+        self.keyboard_enabled = True
+        self.show_keys = False
+        self.last_key = None
+        self.key_queue = []
 
-def aspect_ratio(state, data):
-    global vid_width
-    global vid_height
-    if state:
-        vid_width = 1920
-        vid_height = 1080
-    else:
-        vid_width = 1024
-        vid_height = 768
-    start_capture()
+        self.baud_index = 15
+        self.baud_rates = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
 
-def set_show_keys(state, data):
-    global show_keys
-    show_keys = bool(state)
+        self.blank = np.zeros((480, 640, 3), np.uint8)
+        self.blank[:] = (0, 0, 0)
 
-def queue_key(state=None, data=None):
-    global key_queue
-    if data in key_queue:
-        key_queue.remove(data)
-    key_queue.append(data)
+    def show_control_panel(self, event=None):
+        if self.cp and self.cp.winfo_exists(): return
+        self.cp = tk.Toplevel()
+        self.cp.wm_title("Control Panel")
+        self.cp.resizable(width=False, height=False)
+        self.cp.attributes('-topmost', 'true')
+        self.cp.bind("<KeyPress>", self.keydown)
+        self.cp.bind("<KeyRelease>", self.keyup)
 
-def send_keys(state=None, keys=[], press=True):
-    if press:
-        for key in keys:
-            send_key_press(key)
-        timer = threading.Timer(0.25, send_keys, None, {'keys': keys[:], 'press': False})
-        timer.start()
-        keys.clear()
-    else:
-        for key in keys:
-            send_key_release(key)
+        kbChk = tk.BooleanVar()
+        kbChk.set(self.keyboard_enabled)
+        showChk = tk.BooleanVar()
+        showChk.set(self.show_keys)
+
+        frame = tk.Frame(self.cp, borderwidth=0, relief="flat")
+        frame.pack(padx=15, pady=10)
+        frame.grid_columnconfigure(1, weight=1, uniform="a")
+        frame.grid_columnconfigure(2, weight=1, uniform="a")
+        sc = frame.cget('bg')
+
+        tk.Label(frame, text="Key Queue").grid(
+            row=0, column=0, columnspan=3, pady=(0,6))
+        tk.Button(frame, text="CTRL", command=lambda:self.queue_key(keymap.keys.Ctrl)).grid(
+            row=1, column=0, sticky='nesw', padx=2, pady=2)
+        tk.Button(frame, text="SHFT", command=lambda:self.queue_key(keymap.keys.Shift)).grid(
+            row=1, column=1, sticky='nesw', padx=2, pady=2)
+        tk.Button(frame, text="ALT ", command=lambda:self.queue_key(keymap.keys.Alt)).grid(
+            row=1, column=2, sticky='nesw', padx=2, pady=2)
+        tk.Button(frame, text="LOGO", command=lambda:self.queue_key(keymap.keys.Logo)).grid(
+            row=2, column=0, sticky='nesw', padx=2, pady=2)
+        tk.Button(frame, text="MENU", command=lambda:self.queue_key(keymap.keys.Menu)).grid(
+            row=2, column=1, sticky='nesw', padx=2, pady=2)
+        tk.Button(frame, text=" -> ", command=lambda:self.send_keys(self.key_queue)).grid(
+            row=2, column=2, sticky='nesw', padx=2, pady=2)
+        tk.Label(frame, text="Settings").grid(
+            row=3, column=0, columnspan=3, pady=(18,6))
+        tk.Button(frame, text="<<", command=self.prev_stream).grid(
+            row=4, column=0, sticky='nesw', pady=2)
+        tk.Label(frame, text="Stream").grid(
+            row=4, column=1, pady=2)
+        tk.Button(frame, text=">>", command=self.next_stream).grid(
+            row=4, column=2, sticky='nesw', pady=2)
+        tk.Button(frame, text="<<", command=self.prev_serial).grid(
+            row=5, column=0, sticky='nesw', pady=2)
+        tk.Label(frame, text="Serial").grid(
+            row=5, column=1, pady=2)
+        tk.Button(frame, text=">>", command=self.next_serial).grid(
+            row=5, column=2, sticky='nesw', pady=2)
+        tk.Button(frame, text="<<", command=self.prev_baud).grid(
+            row=6, column=0, sticky='nesw', pady=2)
+        tk.Label(frame, text="Speed").grid(
+            row=6, column=1, pady=2)
+        tk.Button(frame, text=">>", command=self.next_baud).grid(
+            row=6, column=2, sticky='nesw', pady=2)
+        tk.Label(frame, text="Aspect Ratio").grid(
+            row=7, column=0, columnspan=3, sticky="w", pady=(12,0))
+        tk.Radiobutton(frame, text="Orig", selectcolor=sc, borderwidth=0, highlightthickness=0, variable=self.aspect, value='native', command=lambda:self.set_aspect()).grid(
+            row=8, column=0, sticky='w')
+        tk.Radiobutton(frame, text="4:3", selectcolor=sc, borderwidth=0, highlightthickness=0, variable=self.aspect, value='std', command=lambda:self.set_aspect()).grid(
+            row=8, column=1, sticky='w')
+        tk.Radiobutton(frame, text="16:9", selectcolor=sc, borderwidth=0, highlightthickness=0, variable=self.aspect, value='wide', command=lambda:self.set_aspect()).grid(
+            row=8, column=2, sticky='w')
+        tk.Checkbutton(frame, text="Enable Keyboard", variable=kbChk, command=lambda:self.enable_keyboard(kbChk.get()), borderwidth=0, highlightthickness=0, selectcolor=sc).grid(
+            row=9, column=0, columnspan=3, sticky='w', pady=(12,4))
+        tk.Checkbutton(frame, text="Show Keys", variable=showChk, command=lambda:self.set_show_keys(showChk.get()), borderwidth=0, highlightthickness=0, selectcolor=sc).grid(
+            row=10, column=0, columnspan=3, sticky='w', pady=4)
+
+    def fit_image(self, img):
+        win_width = self.window.winfo_width()
+        win_height = self.window.winfo_height() - self.statusbar.winfo_reqheight()
+        return ImageOps.contain(img, (win_width, win_height), method=Image.BICUBIC)
+
+    def serial_write(self, msg):
+        if self.ser:
+            self.ser.write(bytes(msg, 'utf-8'))
+
+    def print_key(self, key, action):
+        if self.show_keys:
+            print('{}  0x{:02X}  {:<3} {}'.format(
+                action, key.keycode, key.keycode, key.keysym))
+
+    def map_keycode(aelf, code):
+        try:
+            return keymap.codes[code]
+        except IndexError:
+            return 0x00
+
+    def send_key_press(self, code):
+        self.serial_write("P {}\n".format(self.map_keycode(code)))
+
+    def send_key_release(self, code):
+        self.serial_write("R {}\n".format(self.map_keycode(code)))
+
+    def keydown(self, event):
+        if not self.keyboard_enabled: return
+        self.print_key(event, 'PRESS  ')
+        if self.key_queue:
+            self.send_keys(keys=self.key_queue)
+        self.send_key_press(event.keycode)
+        self.last_key = event
+
+    def keyup(self, event):
+        if not self.keyboard_enabled: return
+        self.print_key(event, 'RELEASE')
+        self.send_key_release(event.keycode)
+
+    def start_serial(self):
+        self.stop_serial()
+        try:
+            self.ser = serial.Serial(self.ports[self.ser_index].device, self.baud_rates[self.baud_index])
+            print("Opened serial connection: {} {} {}{}{}".format(
+                self.ser.name, self.ser.baudrate, self.ser.bytesize, self.ser.parity, self.ser.stopbits))
+        except IndexError:
+            print("Serial port not found", file=sys.stderr)
+        except:
+            print("Could not open serial connection: {}".format(self.ports[self.ser_index].name), file=sys.stderr)
+
+    def stop_serial(self):
+        if self.ser: self.ser.close()
+
+    def start_capture(self):
+        try:
+            self.stop_capture()
+            self.vc = cv2.VideoCapture(self.vc_index, cv2.CAP_V4L)
+            if not self.vc.isOpened():
+                self.vc = cv2.VideoCapture(self.vc_index, cv2.CAP_DSHOW)
+            if not self.vc.isOpened():
+                self.vc = cv2.VideoCapture(self.vc_index, cv2.CAP_ANY)
+            self.vc.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+            if self.vid_width:
+                self.vc.set(cv2.CAP_PROP_FRAME_WIDTH, self.vid_width)
+                self.vc.set(cv2.CAP_PROP_FRAME_HEIGHT, self.vid_height)
+            self.window_resized = False
+        except:
+            vc = None
+
+    def stop_capture(self):
+        if self.vc: self.vc.release()
+
+    def status_str(self):
+        stream = "{} x {}".format(
+            int(self.vc.get(cv2.CAP_PROP_FRAME_WIDTH)), int(self.vc.get(cv2.CAP_PROP_FRAME_HEIGHT))) if self.vc and self.vc.isOpened() else 'No Video'
+        ser_info = "{} {} {}{}{}".format(
+            self.ser.name, self.ser.baudrate, self.ser.bytesize, self.ser.parity, self.ser.stopbits) if self.ser else None
+        kb = 'Enabled' if self.keyboard_enabled else 'Disabled'
+        key = "  0x{:02X} {}".format(self.last_key.keycode, self.last_key.keysym) if self.show_keys and self.last_key else ''
+        q = "  |  Q: {}".format(', '.join(list(map(lambda k : str(k).split('.')[-1], self.key_queue)))) if self.key_queue else ''
+        return "Video: [{}] {}  |  Serial: {}  |  Keyboard: {}{}{}".format(
+            self.vc_index, stream, ser_info, kb, key, q)
+
+    def prev_stream(self):
+        if self.vc_index == 0: return
+        self.vc_index -= 1
+        self.start_capture()
+
+    def next_stream(self):
+        self.vc_index += 1
+        self.start_capture()
+
+    def prev_serial(self):
+        self.ser_index = len(self.ports)-1 if self.ser_index == 0 else self.ser_index-1
+        self.start_serial()
+
+    def next_serial(self):
+        self.ser_index = 0 if self.ser_index == len(self.ports)-1 else self.ser_index+1
+        self.start_serial()
+
+    def prev_baud(self):
+        self.baud_index = len(self.baud_rates)-1 if self.baud_index == 0 else self.baud_index-1
+        self.start_serial()
+
+    def next_baud(self):
+        self.baud_index = 0 if self.baud_index == len(self.baud_rates)-1 else self.baud_index+1
+        self.start_serial()
+
+    def enable_keyboard(self, state=True):
+        self.keyboard_enabled = bool(state)
+
+    def set_show_keys(self, show=True):
+        self.show_keys = bool(show)
+
+    def set_aspect(self, mode=None):
+        new_mode = mode if mode else self.aspect.get()
+        if new_mode == 'std':
+            self.vid_width = 1024
+            self.vid_height = 768
+        elif new_mode == 'wide':
+            self.vid_width = 1280
+            self.vid_height = 720
+        else:
+            self.vid_width = None
+            self.vid_height = None
+        self.start_capture()
+
+    def queue_key(self, key):
+        if key in self.key_queue:
+            self.key_queue.remove(key)
+        self.key_queue.append(key)
+
+    def send_keys(self, keys=[], press=True):
+        if press:
+            for key in keys:
+                self.send_key_press(key)
+            timer = threading.Timer(0.25, self.send_keys, None, {'keys': keys[:], 'press': False})
+            timer.start()
+            keys.clear()
+        else:
+            for key in keys:
+                self.send_key_release(key)
+
+    def show_frame(self):
+        try:
+            if self.vc.isOpened():
+                ret, frame = self.vc.read()
+            else:
+                ret = False
+            if not ret:
+                frame = self.blank
+            cv2image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
+            img = Image.fromarray(cv2image)
+            if self.window_resized:
+                img = self.fit_image(img)
+            else:
+                imw, imh = img.size
+                self.window.geometry("{}x{}".format(imw, imh))
+            imgtk = ImageTk.PhotoImage(image=img)
+            self.video.imgtk = imgtk
+            self.video.configure(image=imgtk)
+            self.statusbar.configure(text=self.status_str())
+            self.window_resized = True
+        except:
+            pass
+        self.window.after(30, self.show_frame)
+
+    def run(self):
+        self.ports = list_ports()
+        self.ports.sort(key=lambda p: p.name)
+        for index, port in enumerate(self.ports):
+            if 'USB' in port.name:
+                self.ser_index = index
+                break
+
+        if len(glob.glob('/dev/video*')) > 2:
+            self.vc_index = 2
+
+        self.start_serial()
+        self.start_capture()
+
+        self.window = tk.Tk(className='CrashCart')
+        self.window.wm_title('CrashCart')
+        self.window.bind('<Control-Key-p>', self.show_control_panel)
+        self.window.bind("<KeyPress>", self.keydown)
+        self.window.bind("<KeyRelease>", self.keyup)
+        self.window.bind("<Button-3>", self.show_control_panel)
+
+        self.video = tk.Label(self.window, relief='flat', borderwidth=0)
+        self.video.pack()
+        self.statusbar = tk.Label(self.window, text=self.status_str(), bd=1, relief=tk.SUNKEN, anchor=tk.W)
+        self.statusbar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.aspect = tk.StringVar(self.window, 'native')
+
+        self.show_frame()
+        self.window.mainloop()
+
+        self.stop_capture()
+        self.stop_serial()
+        return 0
+
 
 def run():
-    start_serial()
-    keyboard.hook(key_hook)
-    start_capture()
-
-    cv2.namedWindow(window, cv2.WINDOW_GUI_EXPANDED|cv2.WINDOW_KEEPRATIO|cv2.WINDOW_NORMAL)
-    cv2.setWindowTitle(window, 'CrashCart')
-    cv2.resizeWindow(window, 800, 600)
-    cv2.createButton('CTRL', queue_key, keymap.keys.Ctrl)
-    cv2.createButton('SHFT', queue_key, keymap.keys.Shift)
-    cv2.createButton('ALT ', queue_key, keymap.keys.Alt)
-    cv2.createButton('LOGO', queue_key, keymap.keys.Logo, cv2.QT_PUSH_BUTTON|cv2.QT_NEW_BUTTONBAR)
-    cv2.createButton('MENU', queue_key, keymap.keys.Menu)
-    cv2.createButton(' -> ', send_keys, key_queue)
-    cv2.createButton('< Stream', toggle_stream, False, cv2.QT_PUSH_BUTTON|cv2.QT_NEW_BUTTONBAR)
-    cv2.createButton('Stream >', toggle_stream, True)
-    cv2.createButton('< Serial', toggle_serial, False, cv2.QT_PUSH_BUTTON|cv2.QT_NEW_BUTTONBAR)
-    cv2.createButton('Serial >', toggle_serial, True)
-    cv2.createButton('- Speed', toggle_baud, False, cv2.QT_PUSH_BUTTON|cv2.QT_NEW_BUTTONBAR)
-    cv2.createButton('Speed +', toggle_baud, True)
-    cv2.createButton('Enable Keyboard', enable_keyboard, None, cv2.QT_CHECKBOX|cv2.QT_NEW_BUTTONBAR, 1)
-    cv2.createButton('Widescreen', aspect_ratio, None, cv2.QT_CHECKBOX|cv2.QT_NEW_BUTTONBAR, 1)
-    cv2.createButton('Show Keys', set_show_keys, None, cv2.QT_CHECKBOX|cv2.QT_NEW_BUTTONBAR, 0)
-
-    while True:
-        if vc.isOpened():
-            rval, frame = vc.read()
-        else:
-            rval = False
-        if not rval:
-            frame = blank
-            cv2.displayOverlay(window, 'No Video', 35)
-        cv2.displayStatusBar(window, status_str(), 0)
-        cv2.imshow(window, frame)
-        key = cv2.waitKey(30)
-        if cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
-            break
-
-    cv2.destroyAllWindows()
-    stop_capture()
-    stop_serial()
+    app = App()
+    return app.run()

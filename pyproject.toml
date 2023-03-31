@@ -1,16 +1,17 @@
 [project]
 name = "crashcart"
-version = "0.1.0"
+version = "0.2.0"
 description = "Use a laptop as a keyboard and monitor for another computer"
 readme = "README.md"
 requires-python = ">=3.7"
 dependencies = [
-    "opencv-python",
     "numpy",
+    "opencv-python",
+    "Pillow",
     "pyserial",
 ]
 
-[project.scripts]
+[project.gui-scripts]
 crashcart = "crashcart:run"
 
 [build-system]
@@ -18,4 +19,4 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["crashcart", "crashcart.keyboard"]
+packages = ["crashcart", "crashcart.keymap"]

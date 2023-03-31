@@ -4,12 +4,12 @@ Use a laptop as a monitor and keyboard for another computer. Takes the place of
 a traditional "crash cart" used in data centers to diagnose issues with headless
 systems.
 
-**Current Status**
+**Current Status**  
 CrashCart was written in a hurry to scratch a personal itch. It has been tested
 primarily on Linux, but should work on Windows out of the box and on macOS
 without many tweaks. Contributions are welcome, but feature requests without
 an implementation are not likely to be considered. This is, at tbe end of the
-day, a project aimed at tinkerers, and so OS packing is discouraged.
+day, a project aimed at tinkerers, and so OS packaging is discouraged.
 
 ## Hardware
 
@@ -39,12 +39,7 @@ CrashCart requires:
   * OpenCV-Python
   * Numpy
   * PySerial
-
-On Linux, Your user account will also need access to `uinput`. This can be done
-by running as root or, on some systems, by adding your user to the `tty` and/or
-`input` groups.
-
-    $ sudo usermod -a -G input,tty $USER
+  * Pillow
 
 CrashCart can be run directly from the project source using the `run.py` script.
 
@@ -63,13 +58,12 @@ Or packaged on Arch Linux using the included `PKGBUILD`:
 ## Use
 
 CrashCart will attempt to select the correct video stream and serial port
-when starting. To select another video device or serial device/speed, click
-the right-most toolbar button, "Display properties window", to open the
-control panel.
+when starting. To select another video device or serial device/speed, press
+`Ctrl+P` or right click to open the control panel window.
 
-The control panel window allows you to cycle between video and serial devices
-as well as serial device speeds. You can also disable keyboard capture, adjust
-aspect ratio, and enable display of key presses in the status bar.
+The control panel allows you to cycle between video and serial devices as
+well as serial device speeds. You can also disable keyboard capture and
+enable display of key presses in the status bar.
 
 ### Key Queue
 
@@ -92,24 +86,32 @@ press the `Delete` key on the keyboard.
 CrashCart sends key press and release events over a serial connection using a
 simple protocol. Each command is followed by a newline.
 
-  * Press key: `P <scan code>`
-  * Release key: `R <scan code>`
-  * Press and release key: `K <scan code>`
+  * Press key: `P <keycode>`
+  * Release key: `R <keycode>`
+  * Press and release key: `K <key>`
 
-The decimal scan codes are the raw codes used by the Arduino Keyboard library.
+The decimal key codes are the raw codes used by the Arduino Keyboard library.
 For example, to press then release the Escape key:
 
     P 35
     R 35
 
-CrashCart provides a mapping for standard PC keyboard scan codes in
-`keymap.py`. If key presses are sending incorrect characters, you may need to
-customize the keymap.
+### Keymap
 
-Copyright and License
+CrashCart provides a mapping for US keyboard in several operating systems in
+the `kwymap` module. It will attempt to select the correct keymap based on the
+operating system. If key presses are sending incorrect characters, you may need
+to create a custom keymap. This can either be located at
+`crashcart/keymap/custom.py` or in a Python module in the load path named
+`crashcart_keymap`. 
+
+The `keyutil.py` script can help generate starter keymap files: run the script
+and, with the utility window selected, press every key on the target keyboard.
+A stub keymap will be written to `new_keymap.py` in the working directory.
+
+## Copyright and License
 
 Copyright (c) 2023 Corey Hinshaw  
-Copyright (c) 2016 BoppreH
 
 CrashCart is released under the terms of the MIT license. See the included
 `LICENSE` file for details.

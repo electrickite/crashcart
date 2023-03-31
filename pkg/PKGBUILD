@@ -1,10 +1,10 @@
 pkgname=crashcart
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Turn laptop into headless system crash cart"
 arch=("any")
 license=("MIT")
-depends=(kbd python python-opencv python-numpy python-pyserial)
+depends=(kbd python python-opencv python-numpy python-pillow python-pyserial)
 makedepends=(python-build python-installer python-wheel)
 source=()
 sha256sums=()

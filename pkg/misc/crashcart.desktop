@@ -6,3 +6,4 @@ Comment=Control a connected computer
 TryExec=crashcart
 Exec=crashcart
 Icon=crashcart
+SingleMainWindow=true

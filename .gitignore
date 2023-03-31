@@ -1,3 +1,5 @@
+new_keymap.py
+crashcart/keymap/custom.py
 __pycache__/
 *.py[cod]
 *$py.class
