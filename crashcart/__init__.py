@@ -195,10 +195,13 @@ class App:
     def start_capture(self):
         try:
             self.stop_capture()
-            self.vc = cv2.VideoCapture(self.vc_index, cv2.CAP_V4L)
-            if not self.vc.isOpened():
+            if sys.platform == 'linux':
+                self.vc = cv2.VideoCapture(self.vc_index, cv2.CAP_V4L)
+            elif sys.platform == 'win32':
                 self.vc = cv2.VideoCapture(self.vc_index, cv2.CAP_DSHOW)
-            if not self.vc.isOpened():
+            elif sys.platform == 'darwin':
+                self.vc = cv2.VideoCapture(self.vc_index, cv2.CAP_AVFOUNDATION)
+            if not (self.vc and self.vc.isOpened()):
                 self.vc = cv2.VideoCapture(self.vc_index, cv2.CAP_ANY)
             self.vc.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
             if self.vid_width:
